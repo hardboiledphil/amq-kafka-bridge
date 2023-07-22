@@ -1,4 +1,4 @@
-package com.hardboiled.phil.amqkafkabridge.amqkafkabridge;
+package com.hardboiled.phil.amqkafkabridge;
 
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
 

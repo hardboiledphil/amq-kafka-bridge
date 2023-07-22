@@ -9,22 +9,12 @@ import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Outgoing;
 
 /**
- * Main component used for bridging between Kafka and AMQ for GEM/EOD related message flows
+ * Main component used for bridging between Kafka and AMQ for message flows
  *
  * <p>Some of the flows are just XML messages and will be transferred as strings.
  * Some of the flows represent java objects and will aim to be proto based but are just byte[] for now
  */
 public class AmqKafkaBridge {
-
-  public static final String AMQ_TO_KAFKA_JSON_IN = "AMQ.TO.KAFKA.JSON.IN";
-  public static final String AMQ_TO_KAFKA_JSON_OUT = "amq-to-kafka-json-out";
-  public static final String KAFKA_TO_AMQ_JSON_IN = "kafka-to-amq-json-in";
-  public static final String KAFKA_TO_AMQ_JSON_OUT = "KAFKA.TO.AMQ.JSON.OUT";
-
-  public static final String AMQ_TO_KAFKA_BYTES_IN = "AMQ.TO.KAFKA.BYTES.IN";
-  public static final String AMQ_TO_KAFKA_BYTES_OUT = "amq-to-kafka-bytes-out";
-  public static final String KAFKA_TO_AMQ_BYTES_IN = "kafka-to-amq-bytes-in";
-  public static final String KAFKA_TO_AMQ_BYTES_OUT = "KAFKA.TO.AMQ.BYTES.OUT";
 
   @Incoming("amq-to-kafka-json-in") // AMQ queue
   @Outgoing("amq-to-kafka-json-out") // Kafka topic

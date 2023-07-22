@@ -14,3 +14,8 @@ It's not intended to run in dev mode - just ./mvnw clean test
 I haven't taken the build through to the build/deploy stage here but I will in a similar
 piece of work at work and will feed back any findings from that application that will
 end up in production
+
+
+keywords:
+
+quarkus reactive amqp kafka amq message bridge prototype

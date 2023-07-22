@@ -1,4 +1,4 @@
-package com.hardboiled.phil.amqkafkabridge.amqkafkabridge;
+package com.hardboiled.phil.amqkafkabridge;
 
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
 import org.testcontainers.containers.KafkaContainer;
@@ -9,7 +9,8 @@ import java.util.Map;
 
 public class KafkaResource implements QuarkusTestResourceLifecycleManager {
 
-    private final static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.3.1"));
+    private final static KafkaContainer kafka
+            = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.3.1"));
 
     @Override
     public Map<String, String> start() {
