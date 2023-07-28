@@ -1,4 +1,4 @@
-package com.hardboiled.phil.amqkafkabridge.amqkafkabridge;
+package com.hardboiled.phil.amqkafkabridge.testcontainers;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;

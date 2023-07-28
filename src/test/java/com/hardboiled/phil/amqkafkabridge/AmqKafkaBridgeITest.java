@@ -1,7 +1,11 @@
-package com.hardboiled.phil.amqkafkabridge.amqkafkabridge;
+package com.hardboiled.phil.amqkafkabridge;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hardboiled.phil.amqkafkabridge.records.TransferRecord;
+import com.hardboiled.phil.amqkafkabridge.testcontainers.AmqContainerResource;
+import com.hardboiled.phil.amqkafkabridge.testcontainers.KafkaContainerResource;
+import com.hardboiled.phil.amqkafkabridge.testcontainers.QuarkusTestAwaitility;
+import com.hardboiled.phil.amqkafkabridge.testcontainers.ResourceReader;
 import io.quarkus.logging.Log;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -43,8 +47,8 @@ import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.KAFKA_TO_AMQ_JSO
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @QuarkusTest
-@QuarkusTestResource(KafkaResource.class)
-@QuarkusTestResource(AmqResource.class)
+@QuarkusTestResource(KafkaContainerResource.class)
+@QuarkusTestResource(AmqContainerResource.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
 
@@ -59,11 +63,14 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
     @BeforeAll
     void setUp() {
         Log.info("setUp called");
+
+        Log.info("host -> " + AmqContainerResource.getNetworkHost());
+        Log.info("amqp port -> " + AmqContainerResource.getAmqpPort());
         AmqpClientOptions amqpClientOptions = new AmqpClientOptions()
-                .setHost(AmqResource.getHost())
-                .setPort(Integer.parseInt(AmqResource.getAmqpPort()))
-                .setUsername(AmqResource.getUserName())
-                .setPassword(AmqResource.getPassword());
+                .setHost(AmqContainerResource.getNetworkHost())
+                .setPort(Integer.parseInt(AmqContainerResource.getAmqpPort()))
+                .setUsername(AmqContainerResource.getUserName())
+                .setPassword(AmqContainerResource.getPassword());
         amqpClient = AmqpClient.create(amqpClientOptions);
         objectMapper = new ObjectMapper();
         kafkaStringConsumer = new KafkaConsumer<>(consumerProps(), new StringDeserializer(), new StringDeserializer());
@@ -113,9 +120,7 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
         amqpClient.createReceiver(KAFKA_TO_AMQ_JSON_OUT)
                 .onComplete(maybeReceiver -> {
                     AmqpReceiver receiver = maybeReceiver.result();
-                    receiver.handler(msg -> {
-                        messages.add(msg);
-                    });
+                    receiver.handler(messages::add);
                 });
         await("assert testJsonMessageKafkaToAmq").untilAsserted(() -> {
             assertEquals(1, messages.size());
@@ -180,8 +185,8 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
 
     private Properties consumerProps() {
         Properties props = new Properties();
-        Log.info("Consumer Props is getting bootstrap of " + KafkaResource.getBootstrapServers());
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KafkaResource.getBootstrapServers());
+        Log.info("Consumer Props is getting bootstrap of " + KafkaContainerResource.getBootstrapServers());
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KafkaContainerResource.getBootstrapServers());
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "test-group-id");
@@ -192,8 +197,8 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
 
     private Properties producerProps() {
         Properties props = new Properties();
-        Log.info("Producer Props is getting bootstrap of " + KafkaResource.getBootstrapServers());
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KafkaResource.getBootstrapServers());
+        Log.info("Producer Props is getting bootstrap of " + KafkaContainerResource.getBootstrapServers());
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KafkaContainerResource.getBootstrapServers());
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 2_100);
