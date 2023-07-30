@@ -1,11 +1,12 @@
 package com.hardboiled.phil.amqkafkabridge;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hardboiled.phil.amqkafkabridge.records.TransferRecord;
+import com.hardboiled.phil.amqkafkabridge.records.TransferRecordFail;
 import com.hardboiled.phil.amqkafkabridge.testcontainers.AmqContainerResource;
 import com.hardboiled.phil.amqkafkabridge.testcontainers.KafkaContainerResource;
 import com.hardboiled.phil.amqkafkabridge.testcontainers.QuarkusTestAwaitility;
-import com.hardboiled.phil.amqkafkabridge.testcontainers.ResourceReader;
 import io.quarkus.logging.Log;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -14,7 +15,6 @@ import io.vertx.amqp.AmqpClientOptions;
 import io.vertx.amqp.AmqpMessage;
 import io.vertx.amqp.AmqpReceiver;
 import io.vertx.core.buffer.Buffer;
-import lombok.SneakyThrows;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -35,15 +35,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.AMQ_TO_KAFKA_BYTES_IN;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.AMQ_TO_KAFKA_BYTES_OUT;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.AMQ_TO_KAFKA_JSON_IN;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.AMQ_TO_KAFKA_JSON_OUT;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.KAFKA_TO_AMQ_BYTES_IN;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.KAFKA_TO_AMQ_BYTES_OUT;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.KAFKA_TO_AMQ_JSON_IN;
-import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.KAFKA_TO_AMQ_JSON_OUT;
+import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.DLQ_TOPIC;
+import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.KAFKA_BYTES_IN;
+import static com.hardboiled.phil.amqkafkabridge.AmqKafkaBridge.AMQ_BYTES_OUT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @QuarkusTest
@@ -55,8 +51,6 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
     AmqpClient amqpClient;
     ObjectMapper objectMapper;
 
-    KafkaConsumer<String, String> kafkaStringConsumer;
-    KafkaProducer<String, String> kafkaStringProducer;
     KafkaConsumer<String, byte[]> kafkaByteArrayConsumer;
     KafkaProducer<String, byte[]> kafkaByteArrayProducer;
 
@@ -73,8 +67,6 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
                 .setPassword(AmqContainerResource.getPassword());
         amqpClient = AmqpClient.create(amqpClientOptions);
         objectMapper = new ObjectMapper();
-        kafkaStringConsumer = new KafkaConsumer<>(consumerProps(), new StringDeserializer(), new StringDeserializer());
-        kafkaStringProducer = new KafkaProducer<>(producerProps(), new StringSerializer(), new StringSerializer());
         kafkaByteArrayConsumer = new KafkaConsumer<>(consumerProps(), new StringDeserializer(), new ByteArrayDeserializer());
         kafkaByteArrayProducer = new KafkaProducer<>(producerProps(), new StringSerializer(), new ByteArraySerializer());
     }
@@ -82,103 +74,51 @@ class AmqKafkaBridgeITest implements QuarkusTestAwaitility {
     @AfterAll
     void tearDown() {
         amqpClient.close();
-        kafkaStringConsumer.close();
-        kafkaStringProducer.close();
         kafkaByteArrayConsumer.close();
         kafkaByteArrayProducer.close();
     }
 
     @Test
-    void testJsonMessageAmqToKafka() {
-        var testJsonMessage = ResourceReader.readResourceToString("jsonTestMessage.json");
-        kafkaStringConsumer.subscribe(Collections.singletonList(AMQ_TO_KAFKA_JSON_OUT));
-        amqpClient.connect()
-                .onComplete(asyncResult -> {
-                    asyncResult.result()
-                            .createSender(AMQ_TO_KAFKA_JSON_IN)
-                            .onComplete(maybeSender ->
-                                    maybeSender.result().send(AmqpMessage.create().withBody(testJsonMessage).build()));
-                });
-        await("assert testJsonMessageAmqToKafka").untilAsserted(() -> {
-            final ConsumerRecords<String, String> messages = kafkaStringConsumer.poll(Duration.ofMillis(250));
-            if (messages.iterator().hasNext()) {
-                assertEquals(1, messages.count());
-                assertEquals(testJsonMessage, messages.iterator().next().value());
-            }
-        });
-    }
+    void testBytesMessageKafkaToAmq() throws JsonProcessingException, ExecutionException, InterruptedException {
+        var transferRecord = new TransferRecord("More Stuff Goes Here");
+        var contentBytes = objectMapper.writeValueAsBytes(transferRecord);
 
-    @Test
-    @SneakyThrows
-    void testJsonMessageKafkaToAmq() {
-        var testJsonMessage = ResourceReader.readResourceToString("jsonTestMessage.json");
-        // metadata available for the kafka record if you need to get info out of it
-        var metadata = kafkaStringProducer.send(
-                new ProducerRecord<>(KAFKA_TO_AMQ_JSON_IN, "test-json::123", testJsonMessage)).get();
+        var metadata = kafkaByteArrayProducer.send(
+                new ProducerRecord<>(KAFKA_BYTES_IN, "test-json::123a", contentBytes)).get();
 
         final List<AmqpMessage> messages = new ArrayList<AmqpMessage>();
-        amqpClient.createReceiver(KAFKA_TO_AMQ_JSON_OUT)
+        amqpClient.createReceiver(AMQ_BYTES_OUT)
                 .onComplete(maybeReceiver -> {
                     AmqpReceiver receiver = maybeReceiver.result();
-                    receiver.handler(messages::add);
-                });
-        await("assert testJsonMessageKafkaToAmq").untilAsserted(() -> {
-            assertEquals(1, messages.size());
-            assertEquals(testJsonMessage, messages.get(0).bodyAsString());
-        });
-    }
-
-    @Test
-    @SneakyThrows
-    void testBytesMessageAmqToKafka() {
-        var transferRecord = new TransferRecord("Stuff Goes Here");
-        var contentJsonString = objectMapper.writeValueAsString(transferRecord);
-        var buffer = Buffer.buffer(contentJsonString);
-        var batchCompleteMessage = AmqpMessage.create().withBufferAsBody(buffer).build();
-
-        kafkaByteArrayConsumer.subscribe(Collections.singletonList(AMQ_TO_KAFKA_BYTES_OUT));
-        amqpClient
-                .connect()
-                .onComplete(asyncResult -> {
-                    asyncResult.result()
-                            .createSender(AMQ_TO_KAFKA_BYTES_IN)
-                            .onComplete(maybeSender ->
-                                    maybeSender.result().send(batchCompleteMessage));
-                });
-        await("assert testBytesMessageAmqToKafka").untilAsserted(() -> {
-            final ConsumerRecords<String, byte[]> messages = kafkaByteArrayConsumer.poll(Duration.ofMillis(250));
-            if (messages.iterator().hasNext()) {
-                var outputBytes = messages.iterator().next().value();
-                var marshalledRecord = objectMapper.readValue(outputBytes, TransferRecord.class);
-                assertEquals(1, messages.count());
-                assertEquals(transferRecord, marshalledRecord);
-            }
-        });
-    }
-
-    @Test
-    @SneakyThrows
-    void testBytesMessageKafkaToAmq() {
-        var transferRecord = new TransferRecord("More Stuff Goes Here");
-        var contentJsonString = objectMapper.writeValueAsString(transferRecord);
-        var buffer = Buffer.buffer(contentJsonString);
-        var bytesMessage = AmqpMessage.create().withBufferAsBody(buffer).build();
-
-        kafkaByteArrayConsumer.subscribe(Collections.singletonList(KAFKA_TO_AMQ_BYTES_OUT));
-        amqpClient.connect()
-                .onComplete(asyncResult -> {
-                    asyncResult.result()
-                            .createSender(KAFKA_TO_AMQ_BYTES_IN)
-                            .onComplete(maybeSender ->
-                                    maybeSender.result().send(bytesMessage));
+                    receiver.handler(msg -> {
+                        messages.add(msg);
+                    });
                 });
         await("assert testBytesMessageKafkaToAmq").untilAsserted(() -> {
+            assertEquals(1, messages.size());
+            var content = objectMapper.readValue(messages.get(0).bodyAsBinary().getBytes(), TransferRecord.class);
+            assertEquals(new TransferRecord(transferRecord.stuffGoesHere().concat("-processed")) , content);
+            Log.info("Asserting completed for testBytesMessageKafkaToAmq");
+        });
+    }
+
+    @Test
+    void testBytesMessageKafkaToAmqWrongObject() throws JsonProcessingException, ExecutionException, InterruptedException {
+        var transferRecord = new TransferRecordFail("More Stuff Goes Here");
+        var contentBytes = objectMapper.writeValueAsBytes(transferRecord);
+
+        var metadata = kafkaByteArrayProducer.send(
+                new ProducerRecord<>(KAFKA_BYTES_IN, "test-json::123b", contentBytes)).get();
+
+        kafkaByteArrayConsumer.subscribe(Collections.singletonList(DLQ_TOPIC));
+
+        await("assert testBytesMessageKafkaToAmqWrongObject").untilAsserted(() -> {
             final ConsumerRecords<String, byte[]> messages = kafkaByteArrayConsumer.poll(Duration.ofMillis(250));
             if (messages.iterator().hasNext()) {
-                var outputBytes = messages.iterator().next().value();
-                var marshalledRecord = objectMapper.readValue(outputBytes, TransferRecord.class);
                 assertEquals(1, messages.count());
-                assertEquals(transferRecord, marshalledRecord);
+                var record = messages.iterator().next();
+                assertEquals("test-json::123b", record.key());
+                Log.info("DLQ caught the message");
             }
         });
     }
