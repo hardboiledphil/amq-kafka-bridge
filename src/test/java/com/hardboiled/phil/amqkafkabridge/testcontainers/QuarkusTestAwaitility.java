@@ -1,4 +1,4 @@
-package com.hardboiled.phil.amqkafkabridge.amqkafkabridge;
+package com.hardboiled.phil.amqkafkabridge.testcontainers;
 
 import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionFactory;
